@@ -14,4 +14,40 @@ jobs:
       - name: Install requirements
         run: python -m pip install -r requirements-dev.txt
       - name: Run synthetic tests
-        run: python -m pytest -q
+        run: python -m pytest -q --ignore=tests/test_tracking.py
+
+  mlflow-registry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tracking dependencies
+        run: python -m pip install -r requirements-dev.txt -r requirements-mlops.txt
+      - name: Verify local MLflow model registration
+        run: python -m pytest -q tests/test_tracking.py
+
+  dvc-reproduction:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install DVC and modeling dependencies
+        run: python -m pip install -r requirements-dev.txt "dvc>=3.55,<4"
+      - name: Generate synthetic Titanic CSV inside runner
+        run: |
+          python -c 'from tests.test_pipeline import fictional; fictional().to_csv("data/raw/titanic.csv", index=False)'
+      - name: Run DVC training stage and verify outputs
+        run: |
+          dvc repro
+          python -c 'from pathlib import Path; assert Path("dvc.lock").is_file(); assert Path("artifacts/survival-model/model.joblib").is_file(); assert Path("reports/eda/summary.json").is_file()'
+          dvc status
+      - name: Check dataset changes invalidate DVC stage
+        run: |
+          cp dvc.lock /tmp/dvc-lock-before
+          python -c 'import pandas as pd; p="data/raw/titanic.csv"; df=pd.read_csv(p); df.loc[0,"Fare"]+=17; df.to_csv(p,index=False)'
+          dvc repro
+          cmp -s /tmp/dvc-lock-before dvc.lock && exit 1 || exit 0

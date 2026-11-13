@@ -1,0 +1,13 @@
+stages:
+  train:
+    cmd: python -m scripts.train --csv data/raw/titanic.csv --output artifacts/survival-model --eda reports/eda
+    deps:
+      - data/raw/titanic.csv
+      - scripts/train.py
+      - titanic_mlops/data.py
+      - titanic_mlops/training.py
+      - titanic_mlops/eda.py
+      - requirements.txt
+    outs:
+      - artifacts/survival-model
+      - reports/eda
