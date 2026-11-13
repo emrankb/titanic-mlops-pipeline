@@ -1,0 +1,11 @@
+**
+!Dockerfile
+!requirements.txt
+!requirements-api.txt
+!titanic_mlops/
+!titanic_mlops/*.py
+!scripts/
+!scripts/__init__.py
+!scripts/serve_api.py
+**/__pycache__/
+**/*.pyc
