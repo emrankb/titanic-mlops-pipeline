@@ -93,21 +93,12 @@ jobs:
           python-version: '3.12'
       - name: Install local training dependencies
         run: python -m pip install -r requirements-dev.txt
-      - name: Train a synthetic model for container test
-        run: |
-          python - <<'PY'
-          from tests.test_pipeline import fictional
-          from titanic_mlops.training import train_and_evaluate, save_artifacts
-          model, summary = train_and_evaluate(fictional())
-          save_artifacts(model, summary, "artifacts/survival-model")
-          PY
-      - name: Build container with no passenger records or model in image
+      - name: Build container with its trained deployment model
         run: docker build --tag titanic-api:test .
-      - name: Run container with external read-only synthetic model
+      - name: Run container with packaged model
         run: |
           docker run --detach --name titanic-api-ci \
             -p 127.0.0.1:8000:8000 \
-            -v "$PWD/artifacts/survival-model:/app/artifacts/survival-model:ro" \
             titanic-api:test
           python - <<'PY'
           import json, time, urllib.request
