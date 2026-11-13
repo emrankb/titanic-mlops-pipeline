@@ -7,5 +7,6 @@
 !scripts/
 !scripts/__init__.py
 !scripts/serve_api.py
+!scripts/prepare_deployment_model.py
 **/__pycache__/
 **/*.pyc
