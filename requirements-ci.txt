@@ -1,0 +1,4 @@
+-r requirements-dev.txt
+-r requirements-api.txt
+-r requirements-monitoring.txt
+httpx2>=0.1
