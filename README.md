@@ -8,7 +8,7 @@ The training pipeline validates input data, engineers family-related features, i
 
 DVC tracks data and code dependencies for reproducible training. MLflow logs model parameters and evaluation metrics, registers the selected model, and assigns it the `champion` alias.
 
-FastAPI serves predictions from a trusted locally saved model. Docker builds the serving image without embedding the dataset or fitted model. Evidently generates local HTML and JSON reports for feature drift and basic monitoring; a separate accuracy alert checks labeled current outcomes.
+FastAPI serves predictions from a trusted locally saved model. Docker trains a deployment model during its build from a fixed, public revision of the Titanic dataset. The final image includes the fitted model but not the training CSV. Evidently generates local HTML and JSON reports for feature drift and basic monitoring; a separate accuracy alert checks labeled current outcomes.
 
 ## Setup and training
 
@@ -39,7 +39,7 @@ python -m scripts.serve_api
 
 The API serves `GET /health` and `POST /predict` at `127.0.0.1:8000`. Documentation is at `http://127.0.0.1:8000/docs`. Prediction inputs consist of seven non-identifying Titanic features.
 
-To run the container with the local model mounted read-only:
+To run the container with the model packaged during the build:
 
 ```bash
 docker build -t titanic-api .
@@ -60,7 +60,7 @@ The monitoring command saves an interactive Evidently HTML report and JSON resul
 
 ## CI/CD
 
-GitHub Actions checks modeling, MLflow model registration, DVC reproduction, FastAPI prediction, Evidently monitoring, and a running Docker container. Workflow checks use fictional passenger rows and store no original passenger records. The Docker stage performs an HTTP prediction test but does not deploy to public hosting.
+GitHub Actions checks modeling, MLflow model registration, DVC reproduction, FastAPI prediction, Evidently monitoring, and a running Docker container with its packaged model. Workflow checks use fictional passenger rows and store no original passenger records. The Docker stage performs an HTTP prediction test. Render can host the same image when its web service is connected to this repository.
 
 ```bash
 python -m pip install -r requirements-ci.txt -r requirements-mlops.txt
@@ -70,3 +70,23 @@ python -m pytest -q
 The project is a local demonstration. The prediction service has no authentication and must not be exposed as a public production endpoint. Only load trusted model artifacts: joblib and MLflow cloudpickle files can execute code during deserialization.
 
 See `docs/data_and_model.md`, `docs/versioning.md` and `docs/api_monitoring.md` for implementation details.
+
+## Hosting
+
+The Docker build uses a pinned public Titanic CSV revision from
+`datasciencedojo/datasets` to train a fitted model. This source has the
+same expected 891-row Titanic schema as the local project dataset. The
+training CSV is not copied into the final image.
+
+A Render Web Service can deploy the repository using the Docker runtime,
+`Dockerfile`, and port `8000`. Use the `free` instance for a small demonstration.
+Connect the service to the `main` branch and enable automatic deployment
+from pushes to that branch. Render builds and starts the API after a push.
+GitHub Actions runs tests on the same branch updates; with Render automatic
+deployments, those tests do not gate a Render release. For stricter release
+approval, disable Render auto-deploy and use a gated deployment trigger.
+
+After the service deploys, visit its `/health` endpoint to verify the model
+loaded and `/docs` to try the prediction endpoint. The service has no API
+authentication and is intended for a small course demonstration, not for
+handling real patient information or other private records.
