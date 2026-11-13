@@ -92,7 +92,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install local training dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements-dev.txt
       - name: Train a synthetic model for container test
         run: |
           python - <<'PY'
