@@ -14,7 +14,7 @@ jobs:
       - name: Install requirements
         run: python -m pip install -r requirements-dev.txt
       - name: Run synthetic tests
-        run: python -m pytest -q --ignore=tests/test_tracking.py
+        run: python -m pytest -q --ignore=tests/test_tracking.py --ignore=tests/test_api_monitoring.py
 
   mlflow-registry:
     runs-on: ubuntu-latest
@@ -51,3 +51,87 @@ jobs:
           python -c 'import pandas as pd; p="data/raw/titanic.csv"; df=pd.read_csv(p); df.loc[0,"Fare"]+=17; df.to_csv(p,index=False)'
           dvc repro
           cmp -s /tmp/dvc-lock-before dvc.lock && exit 1 || exit 0
+
+  api-and-evidently:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install API and Evidently test dependencies
+        run: python -m pip install -r requirements-ci.txt
+      - name: Verify API and monitoring with synthetic records
+        run: python -m pytest -q tests/test_api_monitoring.py
+      - name: Create shareable synthetic monitoring report
+        run: |
+          python - <<'PY'
+          from tests.test_pipeline import fictional
+          from titanic_mlops.training import train_and_evaluate
+          from titanic_mlops.monitoring import generate_monitoring_report
+          reference = fictional()
+          current = reference.copy()
+          current["Age"] = current["Age"] + 20
+          model, result = train_and_evaluate(reference)
+          generate_monitoring_report(
+              reference, current, model, "reports/evidently-ci",
+              reference_accuracy=result.holdout_metrics["accuracy"]
+          )
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evidently-synthetic-monitoring
+          path: reports/evidently-ci/
+          retention-days: 7
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install local training dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Train a synthetic model for container test
+        run: |
+          python - <<'PY'
+          from tests.test_pipeline import fictional
+          from titanic_mlops.training import train_and_evaluate, save_artifacts
+          model, summary = train_and_evaluate(fictional())
+          save_artifacts(model, summary, "artifacts/survival-model")
+          PY
+      - name: Build container with no passenger records or model in image
+        run: docker build --tag titanic-api:test .
+      - name: Run container with external read-only synthetic model
+        run: |
+          docker run --detach --name titanic-api-ci \
+            -p 127.0.0.1:8000:8000 \
+            -v "$PWD/artifacts/survival-model:/app/artifacts/survival-model:ro" \
+            titanic-api:test
+          python - <<'PY'
+          import json, time, urllib.request
+          base = "http://127.0.0.1:8000"
+          for _ in range(45):
+              try:
+                  with urllib.request.urlopen(base + "/health", timeout=2) as response:
+                      assert json.load(response)["model_loaded"]
+                  break
+              except (OSError, AssertionError):
+                  time.sleep(1)
+          else:
+              raise RuntimeError("Container did not become ready.")
+          payload = json.dumps({
+              "Pclass": 2, "Sex": "female", "Age": 29.0,
+              "SibSp": 1, "Parch": 0, "Fare": 22.5, "Embarked": "S",
+          }).encode()
+          req = urllib.request.Request(base + "/predict", payload,
+                                       {"Content-Type": "application/json"})
+          with urllib.request.urlopen(req, timeout=5) as response:
+              prediction = json.load(response)
+          assert prediction["survived"] in [0, 1]
+          assert 0 <= prediction["survival_probability"] <= 1
+          PY
+      - name: Stop test container
+        if: always()
+        run: docker rm --force titanic-api-ci || true
